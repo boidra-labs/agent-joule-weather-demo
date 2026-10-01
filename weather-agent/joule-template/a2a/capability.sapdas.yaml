@@ -1,0 +1,13 @@
+schema_version: 3.27.0
+
+metadata:
+  display_name: "${JOULE_DISPLAY_NAME}"
+  namespace: JOULE.EXT
+  name: ${JOULE_AGENT_NAME}
+  version: ${JOULE_VERSION}
+  description: >-
+    ${JOULE_DESCRIPTION}
+
+system_aliases:
+  ${JOULE_DESTINATION}:
+    destination: ${JOULE_DESTINATION}

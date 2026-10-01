@@ -1,0 +1,15 @@
+parameters:
+  - name: agent_context_id
+    optional: true
+
+action_groups:
+  - actions:
+      - type: agent-request
+        agent_type: remote
+        system_alias: ${JOULE_DESTINATION}
+        result_variable: _agent_response
+
+result:
+  agent_response_message: <? _agent_response.body.message ?>
+  agent_result: <? _agent_response ?>
+  agent_context_id: <? _agent_response.body.contextId ?>

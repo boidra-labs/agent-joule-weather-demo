@@ -1,0 +1,13 @@
+schema_version: 3.27.0
+
+metadata:
+  display_name: "Weather Assistant"
+  namespace: JOULE.EXT
+  name: weather_agent
+  version: 1.0.0
+  description: >-
+    Provides the daily weather forecast for the next 5 days for a given city (default: Wroclaw, Poland) via a remote A2A agent.
+
+system_aliases:
+  WEATHER_AGENT:
+    destination: WEATHER_AGENT

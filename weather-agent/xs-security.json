@@ -1,0 +1,17 @@
+{
+  "xsappname": "weather-agent",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.Call",
+      "description": "Allows calling the weather-agent agent"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "AgentCaller",
+      "description": "Can call the weather-agent agent",
+      "scope-references": ["$XSAPPNAME.Call"]
+    }
+  ]
+}

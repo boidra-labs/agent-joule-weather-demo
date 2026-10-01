@@ -1,0 +1,140 @@
+name: Generate Joule A2A files
+
+# Renders ./joule (Joule BYOA DTA) from joule-template/ + joule.env (${JOULE_*} placeholders),
+# validates it,
+# publishes it as a build artifact and (optionally) deploys it to SAP Joule.
+# Runs standalone (manual / on config change) or as a step of the deploy pipeline (workflow_call).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Capability version (X.Y.Z). Empty = from git tag / config.
+        required: false
+      commit:
+        description: Commit generated joule/ folder back to the branch
+        type: boolean
+        default: false
+      deploy:
+        description: Deploy to SAP Joule (needs JOULE_* secrets)
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: false
+      commit:
+        type: boolean
+        default: false
+      deploy:
+        type: boolean
+        default: false
+    outputs:
+      agent_name:
+        value: ${{ jobs.generate.outputs.agent_name }}
+      version:
+        value: ${{ jobs.generate.outputs.version }}
+  push:
+    branches: [main]
+    paths:
+      - joule.env
+      - joule-template/**
+      - scripts/render-joule.sh
+      - .github/workflows/generate-joule.yml
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    outputs:
+      agent_name: ${{ steps.gen.outputs.agent_name }}
+      version: ${{ steps.gen.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Empty values fall back to joule.env; repository variables override per repo/environment.
+      - name: Render joule/ from template
+        id: gen
+        env:
+          JOULE_VERSION: ${{ inputs.version || vars.JOULE_VERSION }}
+          JOULE_AGENT_NAME: ${{ vars.JOULE_AGENT_NAME }}
+          JOULE_DISPLAY_NAME: ${{ vars.JOULE_DISPLAY_NAME }}
+          JOULE_DESTINATION: ${{ vars.JOULE_DESTINATION }}
+          JOULE_DESCRIPTION: ${{ vars.JOULE_DESCRIPTION }}
+        run: bash scripts/render-joule.sh joule.env joule-template joule
+
+      - name: Show changes vs. committed joule/
+        run: |
+          git add -N joule
+          git --no-pager diff --stat -- joule || true
+          {
+            echo "### Joule DTA — ${{ steps.gen.outputs.agent_name }} v${{ steps.gen.outputs.version }}"
+            echo '```'
+            find joule -type f | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload joule artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: joule-${{ steps.gen.outputs.agent_name }}-${{ steps.gen.outputs.version }}
+          path: joule/
+
+      - name: Commit generated files
+        if: inputs.commit && github.ref_type == 'branch'
+        run: |
+          if [ -z "$(git status --porcelain -- joule)" ]; then
+            echo "joule/ unchanged — nothing to commit"; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add joule
+          git commit -m "chore(joule): regenerate DTA v${{ steps.gen.outputs.version }} [skip ci]"
+          git push
+
+  deploy:
+    needs: generate
+    if: inputs.deploy
+    runs-on: ubuntu-latest
+    environment: joule            # add required reviewers on this environment if you want a manual gate
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: joule-${{ needs.generate.outputs.agent_name }}-${{ needs.generate.outputs.version }}
+          path: joule
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Joule CLI
+        run: npm install -g @sap/joule-cli
+
+      # Non-interactive login with the Joule service key (das-service-canary, plan designer)
+      # and a technical user that has capability_developer + capability_release_admin.
+      # Verify flag names against `joule login --help` for your CLI version.
+      - name: Joule login
+        env:
+          JOULE_AUTH_URL: ${{ secrets.JOULE_AUTH_URL }}
+          JOULE_API_URL: ${{ secrets.JOULE_API_URL }}
+          JOULE_CLIENT_ID: ${{ secrets.JOULE_CLIENT_ID }}
+          JOULE_CLIENT_SECRET: ${{ secrets.JOULE_CLIENT_SECRET }}
+          JOULE_USERNAME: ${{ secrets.JOULE_USERNAME }}
+          JOULE_PASSWORD: ${{ secrets.JOULE_PASSWORD }}
+        run: |
+          joule login \
+            --authurl "$JOULE_AUTH_URL" \
+            --apiurl "$JOULE_API_URL" \
+            --clientid "$JOULE_CLIENT_ID" \
+            --clientsecret "$JOULE_CLIENT_SECRET" \
+            --username "$JOULE_USERNAME" \
+            --password "$JOULE_PASSWORD"
+
+      - name: Compile & deploy
+        run: joule deploy --compile ./joule
+
+      - name: Verify deployment
+        run: joule list | tee /dev/stderr | grep -q "${{ needs.generate.outputs.agent_name }}"
