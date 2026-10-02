@@ -121,7 +121,11 @@ jobs:
           curl -fsS -D boidra-runner.headers -H "Authorization: Bearer $token" "${BOIDRA_API_URL%/}/api/runner/deployments/$BOIDRA_REQUEST_ID/runner?attempt=$GITHUB_RUN_ATTEMPT" -o boidra-runner.py
           expected="$(awk 'tolower($1)=="x-boidra-runner-sha256:" {gsub("\r", "", $2); print $2}' boidra-runner.headers)"
           actual="$(sha256sum boidra-runner.py | cut -d ' ' -f1)"
-          test -n "$expected" && test "$actual" = "$expected"
+          # An `a && b` list does not stop `set -e` when `a` fails, so check explicitly.
+          if [[ -z "$expected" || "$actual" != "$expected" ]]; then
+            echo '::error::The Boidra runner download failed its checksum (no X-Boidra-Runner-Sha256 header, or a mismatch). Check that BOIDRA_API_URL reaches the runner route without a login page.'
+            exit 1
+          fi
           rm boidra-runner.headers
       - name: Deploy and report to Boidra
         env:
