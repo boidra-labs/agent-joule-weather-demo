@@ -67,7 +67,24 @@ Custom spans: `agent.invoke` (linked to caller `traceparent`), `graph.node.model
 `tool.get_weather_forecast` → `open_meteo.geocode` / `open_meteo.forecast`.
 Metrics: `agent.requests`, `agent.tool.calls`, `agent.tool.duration`.
 
-## Deploy to Cloud Foundry
+## Deploy with MTA (recommended)
+
+`mta.yaml` creates everything in one step: SAP AI Core, XSUAA (+ service key), the Destination
+service, the app from the GHCR image, and the subaccount destination **`WEATHER_AGENT`** that Joule
+calls (OAuth2ClientCredentials from the XSUAA key, URL = the app's route).
+
+```bash
+cp weather-agent.mtaext.example weather-agent.mtaext   # fill in the GHCR token (+ OTel key); git-ignored
+mbt build -t mta_archives
+cf login -a <cf-api-url> --sso && cf target -o <org> -s <space>
+cf deploy mta_archives/weather-agent_0.1.0.mtar -e weather-agent.mtaext
+```
+
+The route is `<org>-<space>-weather-agent.<domain>` and the XSUAA app is `weather-agent-<space>`, so
+several spaces can host it side by side. To deploy a new image, change the tag in the `.mtaext`.
+Remove everything with `cf undeploy weather-agent --delete-services`.
+
+## Deploy to Cloud Foundry (manual)
 
 ```bash
 docker build -t ghcr.io/boidra-labs/weather-agent:0.1.0 .

@@ -20,3 +20,6 @@ tests
 .mypy_cache
 .ruff_cache
 manifest.yml
+mta.yaml
+*.mtaext*
+mta_archives

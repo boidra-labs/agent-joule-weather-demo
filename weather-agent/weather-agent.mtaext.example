@@ -1,0 +1,16 @@
+_schema-version: "3.2"
+ID: weather-agent.secrets
+extends: weather-agent
+
+# Copy to weather-agent.mtaext (git-ignored) and fill in. Never commit the filled-in copy.
+#   cf deploy mta_archives/weather-agent_0.1.0.mtar -e weather-agent.mtaext
+
+modules:
+  - name: weather-agent
+    parameters:
+      docker:
+        image: ghcr.io/boidra-labs/weather-agent:0.1.0   # change the tag to deploy another version
+        username: boidra-labs
+        password: <GHCR token with read:packages>       # CF re-pulls on every restart: use a long-lived token
+    properties:
+      OTEL_EXPORTER_OTLP_HEADERS: x-honeycomb-team=<KEY>

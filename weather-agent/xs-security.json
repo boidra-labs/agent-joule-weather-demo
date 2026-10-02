@@ -13,5 +13,8 @@
       "description": "Can call the weather-agent agent",
       "scope-references": ["$XSAPPNAME.Call"]
     }
-  ]
+  ],
+    "oauth2-configuration": {
+    "redirect-uris": ["https://oauth.pstmn.io/v1/callback"]
+  }
 }

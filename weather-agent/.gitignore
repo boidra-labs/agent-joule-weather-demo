@@ -7,3 +7,9 @@ venv/
 !.env.example
 .idea/
 .vscode/
+
+# MTA: build output and the deploy-time secrets extension
+mta_archives/
+.mta/
+*.mtaext
+!*.mtaext.example
