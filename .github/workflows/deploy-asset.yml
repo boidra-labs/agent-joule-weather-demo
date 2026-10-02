@@ -49,6 +49,14 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.image }}
     steps:
+      - name: Verify Boidra API address
+        env:
+          BOIDRA_API_URL: ${{ vars.BOIDRA_API_URL }}
+        run: |
+          if [[ ! "$BOIDRA_API_URL" =~ ^https://[^/]+ ]]; then
+            echo '::error::Set the GitHub Actions variable BOIDRA_API_URL to the public HTTPS address of the Boidra approuter before deploying.'
+            exit 1
+          fi
       - name: Check out the recorded commit
         uses: actions/checkout@v4
         with: {ref: '${{ inputs.source_sha }}', path: source, persist-credentials: false}
