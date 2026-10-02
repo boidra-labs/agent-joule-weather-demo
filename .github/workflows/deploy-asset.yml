@@ -1,0 +1,152 @@
+# Boidra deployment runner for agents and managed MCP servers.
+# Install as .github/workflows/deploy-asset.yml on the branch
+# the Boidra deployment target names as its ref. See README.md.
+#
+# The job fetches its configuration from Boidra with a GitHub OIDC token (audience "boidra"). The
+# inputs below only correlate the run; target, variables and Joule source come from Boidra.
+name: Boidra deploy asset
+# Boidra correlates the run on this title. Do not change it.
+run-name: boidra:${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      request_id: {required: true, type: string}
+      asset_kind: {required: false, type: string, default: agent}
+      asset_id: {required: true, type: string}
+      source_sha: {required: true, type: string}
+      root_directory: {required: false, type: string, default: '.'}
+      environment: {required: true, type: environment}
+      connect_joule: {required: false, type: string, default: 'false'}
+      joule_assistant: {required: false, type: string, default: ''}
+      create_space: {required: false, type: string, default: 'false'}
+      space_name: {required: false, type: string, default: ''}
+      target_config: {required: false, type: string, default: '{}'}
+  # Lets the legacy deploy-agent.yml delegate here (secrets: inherit).
+  workflow_call:
+    inputs:
+      request_id: {required: true, type: string}
+      asset_kind: {required: false, type: string, default: agent}
+      asset_id: {required: true, type: string}
+      source_sha: {required: true, type: string}
+      root_directory: {required: false, type: string, default: '.'}
+      environment: {required: true, type: string}
+      connect_joule: {required: false, type: string, default: 'false'}
+      joule_assistant: {required: false, type: string, default: ''}
+      create_space: {required: false, type: string, default: 'false'}
+      space_name: {required: false, type: string, default: ''}
+      target_config: {required: false, type: string, default: '{}'}
+concurrency:
+  # One active deployment per asset, across every target.
+  group: boidra-${{ inputs.asset_kind }}-${{ inputs.asset_id }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Check out the recorded commit
+        uses: actions/checkout@v4
+        with: {ref: '${{ inputs.source_sha }}', path: source, persist-credentials: false}
+      - name: Build and push the immutable image
+        id: image
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_ROOT: ${{ inputs.root_directory }}
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          root="source"; [[ "$SOURCE_ROOT" == "." ]] || root="source/$SOURCE_ROOT"
+          test -f "$root/Dockerfile"
+          IMAGE_REPOSITORY="${IMAGE_REPOSITORY,,}"
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build --progress=plain -f "$root/Dockerfile" -t "$IMAGE_REPOSITORY:sha-$SOURCE_SHA" --label "org.opencontainers.image.revision=$SOURCE_SHA" "$root"
+          docker push "$IMAGE_REPOSITORY:sha-$SOURCE_SHA"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:sha-$SOURCE_SHA")"
+          [[ "$digest" =~ ^[a-z0-9._/:-]+@sha256:[a-f0-9]{64}$ ]]
+          echo "image=$digest" >> "$GITHUB_OUTPUT"
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      packages: read
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out the recorded commit
+        uses: actions/checkout@v4
+        with: {ref: '${{ inputs.source_sha }}', path: source, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install CF CLI
+        run: |
+          curl -fsSL https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo gpg --dearmor -o /usr/share/keyrings/cloudfoundry.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/cloudfoundry.gpg] https://packages.cloudfoundry.org/debian stable main' | sudo tee /etc/apt/sources.list.d/cloudfoundry.list
+          sudo apt-get update && sudo apt-get install -y cf8-cli
+      - if: inputs.connect_joule == 'true'
+        uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Install pinned Joule CLI
+        if: inputs.connect_joule == 'true'
+        env: {JOULE_CLI_VERSION: '${{ vars.JOULE_CLI_VERSION }}'}
+        run: test -n "$JOULE_CLI_VERSION" && npm install -g "@sap/joule-cli@$JOULE_CLI_VERSION"
+      - name: Fetch the Boidra-managed runner
+        env:
+          BOIDRA_API_URL: ${{ vars.BOIDRA_API_URL }}
+          BOIDRA_REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          oidc_url="$ACTIONS_ID_TOKEN_REQUEST_URL"
+          separator='?'; [[ "$oidc_url" == *'?'* ]] && separator='&'
+          token="$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${oidc_url}${separator}audience=boidra" | python -c 'import json,sys; print(json.load(sys.stdin)["value"])')"
+          curl -fsS -D boidra-runner.headers -H "Authorization: Bearer $token" "${BOIDRA_API_URL%/}/api/runner/deployments/$BOIDRA_REQUEST_ID/runner?attempt=$GITHUB_RUN_ATTEMPT" -o boidra-runner.py
+          expected="$(awk 'tolower($1)=="x-boidra-runner-sha256:" {gsub("\r", "", $2); print $2}' boidra-runner.headers)"
+          actual="$(sha256sum boidra-runner.py | cut -d ' ' -f1)"
+          test -n "$expected" && test "$actual" = "$expected"
+          rm boidra-runner.headers
+      - name: Deploy and report to Boidra
+        env:
+          BOIDRA_API_URL: ${{ vars.BOIDRA_API_URL }}
+          BOIDRA_REQUEST_ID: ${{ inputs.request_id }}
+          BOIDRA_ASSET_KIND: ${{ inputs.asset_kind }}
+          BOIDRA_ASSET_ID: ${{ inputs.asset_id }}
+          BOIDRA_SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_ROOT: ${{ inputs.root_directory }}
+          BOIDRA_IMAGE: ${{ needs.build.outputs.image }}
+          BOIDRA_IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          CF_USERNAME: ${{ secrets.CF_USERNAME }}
+          CF_PASSWORD: ${{ secrets.CF_PASSWORD }}
+          CF_ORIGIN: ${{ vars.CF_ORIGIN }}
+          CF_AUTH_CLIENT_CREDENTIALS: ${{ vars.CF_AUTH_CLIENT_CREDENTIALS }}
+          CF_DOCKER_USERNAME: ${{ vars.CF_DOCKER_USERNAME }}
+          CF_DOCKER_PASSWORD: ${{ secrets.CF_DOCKER_PASSWORD }}
+          DESTINATION_SERVICE_URL: ${{ vars.DESTINATION_SERVICE_URL }}
+          DESTINATION_TOKEN_URL: ${{ vars.DESTINATION_TOKEN_URL }}
+          DESTINATION_CLIENT_ID: ${{ secrets.DESTINATION_CLIENT_ID }}
+          DESTINATION_CLIENT_SECRET: ${{ secrets.DESTINATION_CLIENT_SECRET }}
+          AGENT_TOKEN_URL: ${{ vars.AGENT_TOKEN_URL }}
+          AGENT_CLIENT_ID: ${{ secrets.AGENT_CLIENT_ID }}
+          AGENT_CLIENT_SECRET: ${{ secrets.AGENT_CLIENT_SECRET }}
+          MCP_TOKEN_URL: ${{ vars.MCP_TOKEN_URL }}
+          MCP_CLIENT_ID: ${{ secrets.MCP_CLIENT_ID }}
+          MCP_CLIENT_SECRET: ${{ secrets.MCP_CLIENT_SECRET }}
+          JOULE_API_URL: ${{ vars.JOULE_API_URL }}
+          JOULE_AUTH_URL: ${{ vars.JOULE_AUTH_URL }}
+          JOULE_DEFAULT_IDP: ${{ vars.JOULE_DEFAULT_IDP }}
+          JOULE_NO_APP_TID: ${{ vars.JOULE_NO_APP_TID }}
+          JOULE_CLIENT_ID: ${{ secrets.JOULE_CLIENT_ID }}
+          JOULE_CLIENT_SECRET: ${{ secrets.JOULE_CLIENT_SECRET }}
+          JOULE_USERNAME: ${{ secrets.JOULE_USERNAME }}
+          JOULE_PASSWORD: ${{ secrets.JOULE_PASSWORD }}
+          JOULE_AUTH_SESSION: ${{ secrets.JOULE_AUTH_SESSION }}
+        run: |
+          root="source"; [[ "$SOURCE_ROOT" == "." ]] || root="source/$SOURCE_ROOT"
+          python boidra-runner.py run --source "$root"
