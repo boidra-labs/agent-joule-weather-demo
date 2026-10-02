@@ -21,6 +21,8 @@ on:
       create_space: {required: false, type: string, default: 'false'}
       space_name: {required: false, type: string, default: ''}
       target_config: {required: false, type: string, default: '{}'}
+      # Boidra sends its public address; the repository variable BOIDRA_API_URL is only a fallback.
+      boidra_api_url: {required: false, type: string, default: ''}
   # Lets the legacy deploy-agent.yml delegate here (secrets: inherit).
   workflow_call:
     inputs:
@@ -35,6 +37,7 @@ on:
       create_space: {required: false, type: string, default: 'false'}
       space_name: {required: false, type: string, default: ''}
       target_config: {required: false, type: string, default: '{}'}
+      boidra_api_url: {required: false, type: string, default: ''}
 concurrency:
   # One active deployment per asset, across every target.
   group: boidra-${{ inputs.asset_kind }}-${{ inputs.asset_id }}
@@ -51,10 +54,10 @@ jobs:
     steps:
       - name: Verify Boidra API address
         env:
-          BOIDRA_API_URL: ${{ vars.BOIDRA_API_URL }}
+          BOIDRA_API_URL: ${{ inputs.boidra_api_url || vars.BOIDRA_API_URL }}
         run: |
           if [[ ! "$BOIDRA_API_URL" =~ ^https://[^/]+ ]]; then
-            echo '::error::Set the GitHub Actions variable BOIDRA_API_URL to the public HTTPS address of the Boidra approuter before deploying.'
+            echo '::error::No Boidra address: set BOIDRA_PUBLIC_API_ORIGIN on the Boidra API, or the GitHub Actions variable BOIDRA_API_URL, to the public HTTPS address of the Boidra approuter.'
             exit 1
           fi
       - name: Check out the recorded commit
@@ -108,7 +111,7 @@ jobs:
         run: test -n "$JOULE_CLI_VERSION" && npm install -g "@sap/joule-cli@$JOULE_CLI_VERSION"
       - name: Fetch the Boidra-managed runner
         env:
-          BOIDRA_API_URL: ${{ vars.BOIDRA_API_URL }}
+          BOIDRA_API_URL: ${{ inputs.boidra_api_url || vars.BOIDRA_API_URL }}
           BOIDRA_REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
@@ -122,7 +125,7 @@ jobs:
           rm boidra-runner.headers
       - name: Deploy and report to Boidra
         env:
-          BOIDRA_API_URL: ${{ vars.BOIDRA_API_URL }}
+          BOIDRA_API_URL: ${{ inputs.boidra_api_url || vars.BOIDRA_API_URL }}
           BOIDRA_REQUEST_ID: ${{ inputs.request_id }}
           BOIDRA_ASSET_KIND: ${{ inputs.asset_kind }}
           BOIDRA_ASSET_ID: ${{ inputs.asset_id }}
