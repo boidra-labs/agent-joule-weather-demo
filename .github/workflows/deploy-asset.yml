@@ -44,6 +44,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    if: ${{ !fromJSON(inputs.target_config || '{}').skip_a2a_build }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -83,6 +84,7 @@ jobs:
           [[ "$digest" =~ ^[a-z0-9._/:-]+@sha256:[a-f0-9]{64}$ ]]
           echo "image=$digest" >> "$GITHUB_OUTPUT"
   deploy:
+    if: ${{ always() && !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -102,6 +104,7 @@ jobs:
       # MTA tools are installed only when the asset root holds mta.yaml or a prebuilt archive
       # (or BOIDRA_MTA_ARCHIVE names one); a cf push asset installs nothing extra.
       - name: Detect an MTA deployment
+        if: ${{ !fromJSON(inputs.target_config || '{}').skip_a2a_build }}
         id: mta
         env:
           SOURCE_ROOT: ${{ inputs.root_directory }}
@@ -141,7 +144,10 @@ jobs:
       - name: Install pinned Joule CLI
         if: inputs.connect_joule == 'true'
         env: {JOULE_CLI_VERSION: '${{ vars.JOULE_CLI_VERSION }}'}
-        run: test -n "$JOULE_CLI_VERSION" && npm install -g "@sap/joule-cli@$JOULE_CLI_VERSION"
+        run: |
+          test -n "$JOULE_CLI_VERSION"
+          npm install -g "@sap/joule-cli@$JOULE_CLI_VERSION"
+          python -m pip install --disable-pip-version-check "pyyaml==6.0.3"
       - name: Fetch the Boidra-managed runner
         env:
           BOIDRA_API_URL: ${{ inputs.boidra_api_url || vars.BOIDRA_API_URL }}
