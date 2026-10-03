@@ -36,7 +36,7 @@ modules:
       DEFAULT_LOCATION: Wroclaw, Poland
       AGENT_PUBLIC_URL: ${default-url}/
       # OpenTelemetry - set OTEL_EXPORTER_OTLP_HEADERS in the .mtaext, never here.
-      OTEL_SERVICE_NAME: ag-test-weather
+      OTEL_SERVICE_NAME: ag-weather
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=dev,service.namespace=ws-private-m-kwasniewski-boidra-com
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_EXPORTER_OTLP_ENDPOINT: https://boidra-api.cfapps.eu10-005.hana.ondemand.com/otel
