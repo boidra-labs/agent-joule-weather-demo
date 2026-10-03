@@ -16,10 +16,10 @@ applications:
       DEFAULT_LOCATION: Wroclaw, Poland
       AGENT_PUBLIC_URL: https://weather-agent.cfapps.eu10-005.hana.ondemand.com/
       # --- OpenTelemetry (set OTEL_EXPORTER_OTLP_HEADERS via cf set-env — never in this file)
-      OTEL_SERVICE_NAME: weather-agent
-      OTEL_EXPORTER_OTLP_ENDPOINT: https://api.honeycomb.io
+      OTEL_SERVICE_NAME: ag-test-weather
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=dev,service.namespace=ws-private-m-kwasniewski-boidra-com
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_METRICS_EXPORTER: none
+      OTEL_EXPORTER_OTLP_ENDPOINT: https://boidra-api.cfapps.eu10-005.hana.ondemand.com/otel
     services:
       - weather-agent-aicore             # SAP AI Core (required — LLM)
       - weather-agent-xsuaa              # XSUAA (required — JWT auth)
