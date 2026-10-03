@@ -91,10 +91,31 @@ jobs:
       packages: read
     environment: ${{ inputs.environment }}
     timeout-minutes: 60
+    # The agent's BTP destination, written by the runner after it creates or reconciles it
+    # (empty when btp_destination is skipped, and for an MCP server).
+    outputs:
+      destination_name: ${{ steps.deploy.outputs.destination_name }}
     steps:
       - name: Check out the recorded commit
         uses: actions/checkout@v4
         with: {ref: '${{ inputs.source_sha }}', path: source, persist-credentials: false}
+      # MTA tools are installed only when the asset root holds mta.yaml or a prebuilt archive
+      # (or BOIDRA_MTA_ARCHIVE names one); a cf push asset installs nothing extra.
+      - name: Detect an MTA deployment
+        id: mta
+        env:
+          SOURCE_ROOT: ${{ inputs.root_directory }}
+          BOIDRA_MTA_ARCHIVE: ${{ vars.BOIDRA_MTA_ARCHIVE }}
+        run: |
+          set -euo pipefail
+          root="source"; [[ "$SOURCE_ROOT" == "." ]] || root="source/$SOURCE_ROOT"
+          if [[ -n "$BOIDRA_MTA_ARCHIVE" || -f "$root/mta.yaml" ]] || compgen -G "$root/mta_archives/*.mtar" > /dev/null; then
+            echo "MTA deployment: mta.yaml or an archive at $root."
+            echo 'detected=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "cf push deployment (no mta.yaml at $root)."
+            echo 'detected=false' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v5
         with: {python-version: '3.13'}
       - name: Install CF CLI
@@ -102,9 +123,21 @@ jobs:
           curl -fsSL https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo gpg --dearmor -o /usr/share/keyrings/cloudfoundry.gpg
           echo 'deb [signed-by=/usr/share/keyrings/cloudfoundry.gpg] https://packages.cloudfoundry.org/debian stable main' | sudo tee /etc/apt/sources.list.d/cloudfoundry.list
           sudo apt-get update && sudo apt-get install -y cf8-cli
-      - if: inputs.connect_joule == 'true'
+      - if: inputs.connect_joule == 'true' || steps.mta.outputs.detected == 'true'
         uses: actions/setup-node@v4
         with: {node-version: '22'}
+      - name: Install pinned MTA tools (mbt, PyYAML, MultiApps cf plugin)
+        if: steps.mta.outputs.detected == 'true'
+        env:
+          MBT_VERSION: ${{ vars.MBT_VERSION || '1.2.49' }}
+          PYYAML_VERSION: ${{ vars.PYYAML_VERSION || '6.0.3' }}
+        run: |
+          set -euo pipefail
+          npm install -g "mbt@$MBT_VERSION"
+          mbt --version
+          python -m pip install --disable-pip-version-check "pyyaml==$PYYAML_VERSION"
+          cf add-plugin-repo CF-Community https://plugins.cloudfoundry.org
+          cf install-plugin multiapps -f -r CF-Community
       - name: Install pinned Joule CLI
         if: inputs.connect_joule == 'true'
         env: {JOULE_CLI_VERSION: '${{ vars.JOULE_CLI_VERSION }}'}
@@ -128,6 +161,7 @@ jobs:
           fi
           rm boidra-runner.headers
       - name: Deploy and report to Boidra
+        id: deploy
         env:
           BOIDRA_API_URL: ${{ inputs.boidra_api_url || vars.BOIDRA_API_URL }}
           BOIDRA_REQUEST_ID: ${{ inputs.request_id }}
@@ -135,6 +169,8 @@ jobs:
           BOIDRA_ASSET_ID: ${{ inputs.asset_id }}
           BOIDRA_SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_ROOT: ${{ inputs.root_directory }}
+          BOIDRA_MTA_ARCHIVE: ${{ vars.BOIDRA_MTA_ARCHIVE }}
+          BOIDRA_MTA_MODULE: ${{ vars.BOIDRA_MTA_MODULE }}
           BOIDRA_IMAGE: ${{ needs.build.outputs.image }}
           BOIDRA_IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
           CF_USERNAME: ${{ secrets.CF_USERNAME }}
@@ -143,6 +179,9 @@ jobs:
           CF_AUTH_CLIENT_CREDENTIALS: ${{ vars.CF_AUTH_CLIENT_CREDENTIALS }}
           CF_DOCKER_USERNAME: ${{ vars.CF_DOCKER_USERNAME }}
           CF_DOCKER_PASSWORD: ${{ secrets.CF_DOCKER_PASSWORD }}
+          # Optional name of the agent's BTP destination; set it on the GitHub environment (dev, prod),
+          # not the repository. Unset: <app_name>-<environment>.
+          BOIDRA_DESTINATION_NAME: ${{ vars.BOIDRA_DESTINATION_NAME }}
           DESTINATION_SERVICE_URL: ${{ vars.DESTINATION_SERVICE_URL }}
           DESTINATION_TOKEN_URL: ${{ vars.DESTINATION_TOKEN_URL }}
           DESTINATION_CLIENT_ID: ${{ secrets.DESTINATION_CLIENT_ID }}
