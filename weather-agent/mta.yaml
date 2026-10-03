@@ -1,0 +1,106 @@
+_schema-version: "3.2"
+ID: weather-agent
+version: 0.1.0
+description: Weather A2A agent (LangGraph + SAP AI Core) for SAP Joule, run from a GHCR Docker image.
+
+# Deploy (Cloud Foundry, MultiApps plugin):
+#   mbt build -t mta_archives
+#   cf deploy mta_archives/weather-agent_0.1.0.mtar -e weather-agent.mtaext
+# weather-agent.mtaext (git-ignored, copy from weather-agent.mtaext.example) carries the GHCR
+# token. Everything below is created or updated by `cf deploy`: services, service key, app,
+# route and the Joule destination WEATHER_AGENT.
+
+parameters:
+  enable-parallel-deployments: true
+
+modules:
+  - name: weather-agent
+    type: application
+    build-parameters:
+      no-source: true            # prebuilt image - nothing to build or upload
+    parameters:
+      docker:
+        image: ghcr.io/boidra-labs/weather-agent:0.1.0
+        username: boidra-labs     # password comes from weather-agent.mtaext
+      memory: 512M
+      disk-quota: 1G
+      instances: 1
+      health-check-type: http
+      health-check-http-endpoint: /.well-known/agent-card.json
+      health-check-timeout: 60
+      # Route: ${org}-${space}-weather-agent.<domain>, unique per space (dev and prod can coexist).
+    properties:
+      LOG_LEVEL: INFO
+      AICORE_MODEL: gpt-4.1
+      AICORE_RESOURCE_GROUP: default
+      DEFAULT_LOCATION: Wroclaw, Poland
+      AGENT_PUBLIC_URL: ${default-url}/
+      # OpenTelemetry - set OTEL_EXPORTER_OTLP_HEADERS in the .mtaext, never here.
+      OTEL_SERVICE_NAME: ag-test-weather
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=dev,service.namespace=ws-private-m-kwasniewski-boidra-com
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: https://boidra-api.cfapps.eu10-005.hana.ondemand.com/otel
+    provides:
+      - name: weather-agent-api
+        properties:
+          url: ${default-url}
+    requires:
+      - name: weather-agent-aicore
+      - name: weather-agent-xsuaa
+      - name: weather-agent-destination
+
+resources:
+  # SAP AI Core - the LLM. bootstrap.py reads the "aicore" binding from VCAP_SERVICES.
+  - name: weather-agent-aicore
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: aicore
+      service-plan: extended
+
+  # XSUAA - auth.py validates every A2A call against this binding.
+  - name: weather-agent-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        # One xsappname per space, so dev and prod in the same subaccount do not collide.
+        xsappname: weather-agent-${space}
+        tenant-mode: dedicated
+      service-keys:
+        - name: weather-agent-xsuaa-key   # used by the WEATHER_AGENT destination below
+
+  # Destination service + the subaccount destination Joule calls (name must match joule.env
+  # JOULE_DESTINATION). Client credentials come from the XSUAA service key above.
+  - name: weather-agent-destination
+    type: org.cloudfoundry.managed-service
+    requires:
+      - name: weather-agent-api
+      - name: weather-agent-xsuaa
+    processed-after: [weather-agent-xsuaa]
+    parameters:
+      service: destination
+      service-plan: lite
+      config:
+        version: 1.0.0
+        init_data:
+          subaccount:
+            existing_destinations_policy: update
+            destinations:
+              - Name: WEATHER_AGENT
+                Description: Weather A2A agent (created by mta.yaml)
+                Type: HTTP
+                ProxyType: Internet
+                URL: ~{weather-agent-api/url}
+                Authentication: OAuth2ClientCredentials
+                ServiceInstanceName: weather-agent-xsuaa
+                ServiceKeyName: weather-agent-xsuaa-key
+
+  # Optional - uncomment and add to the module's "requires" to enable.
+  # - name: weather-agent-agent-memory     # SAP Agent Memory (multi-turn memory)
+  #   type: org.cloudfoundry.managed-service
+  #   parameters: { service: hana-agent-memory, service-plan: <plan> }
+  # - name: weather-agent-cloud-logging    # SAP Cloud Logging (alternative OTel backend)
+  #   type: org.cloudfoundry.managed-service
+  #   parameters: { service: cloud-logging, service-plan: <plan> }
