@@ -10,6 +10,6 @@ action_groups:
         result_variable: _agent_response
 
 result:
-  agent_response_message: <? _agent_response.body.message ?>
+  agent_response_message: <? _agent_response.body.artifacts[0].parts[0].text  ?>
   agent_result: <? _agent_response ?>
   agent_context_id: <? _agent_response.body.contextId ?>
