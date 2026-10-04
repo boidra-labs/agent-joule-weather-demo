@@ -2,7 +2,7 @@ schema_version: 3.27.0
 
 metadata:
   display_name: "Weather Assistant"
-  namespace: JOULE.EXT
+  namespace: joule.ext
   name: weather_agent
   version: 1.0.0
   description: >-
