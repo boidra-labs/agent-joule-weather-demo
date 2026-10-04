@@ -7,7 +7,9 @@ action_groups:
       - type: agent-request
         agent_type: remote
         system_alias: WEATHER_AGENT
-
+        body:
+          configurations:
+            pushNotifications: true
         result_variable: _agent_response
 
   - actions: 
