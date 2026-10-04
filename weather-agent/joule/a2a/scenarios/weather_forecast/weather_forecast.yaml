@@ -7,10 +7,6 @@ target:
     - name: agent_context_id
       value: $capability_context.agent_context_id
 
-response_context:
-  - description: "Weather forecast from the Weather Assistant agent"
-    value: $target_result.agent_result
-
 capability_context:
   - name: agent_context_id
     value: $target_result.agent_context_id

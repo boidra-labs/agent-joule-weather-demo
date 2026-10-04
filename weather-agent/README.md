@@ -30,7 +30,7 @@ app/
   auth.py            XSUAA JWT middleware
 joule/               Joule BYOA capability (DTA schema 3.27.0)
   da.sapdas.yaml
-  a2a/capability.sapdas.yaml        namespace JOULE.EXT, system alias WEATHER_AGENT
+  a2a/capability.sapdas.yaml        namespace joule.ext, system alias WEATHER_AGENT
   a2a/capability_context.yaml
   a2a/functions/weather_agent.yaml
   a2a/scenarios/weather_forecast/weather_forecast.yaml

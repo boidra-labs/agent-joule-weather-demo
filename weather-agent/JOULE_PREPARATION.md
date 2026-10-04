@@ -57,7 +57,7 @@ joule/
 | `JOULE_SCENARIO_DESCRIPTION` | "Get the weather forecast…" | scenario `description` (used by Joule for routing) | no `"` |
 | `JOULE_RESPONSE_DESCRIPTION` | "Weather forecast from…" | scenario `response_context` | no `"` |
 
-`namespace` is fixed to `JOULE.EXT` (required for custom / BYOA agents).
+`namespace` is fixed to `joule.ext` (lowercase, required for custom / BYOA agents). Joule rejects any other value, including `JOULE.EXT`, as the reserved `sap` namespace (Tenant Administration error 5014).
 
 **Precedence:** workflow input → repository variable (`vars.JOULE_*`) → `joule.env`.
 Repo variables are supported for `JOULE_VERSION`, `JOULE_AGENT_NAME`, `JOULE_DISPLAY_NAME`, `JOULE_DESTINATION` and `JOULE_DESCRIPTION`.
