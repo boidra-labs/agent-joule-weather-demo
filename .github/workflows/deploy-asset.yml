@@ -143,10 +143,17 @@ jobs:
           cf install-plugin multiapps -f -r CF-Community
       - name: Install pinned Joule CLI
         if: inputs.connect_joule == 'true'
-        env: {JOULE_CLI_VERSION: '${{ vars.JOULE_CLI_VERSION }}'}
+        env:
+          JOULE_CLI_VERSION: ${{ vars.JOULE_CLI_VERSION || '2.0.2' }}
         run: |
-          test -n "$JOULE_CLI_VERSION"
-          npm install -g "@sap/joule-cli@$JOULE_CLI_VERSION"
+          set -euo pipefail
+          if [[ ! "$JOULE_CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo '::error::JOULE_CLI_VERSION must be an exact Joule Studio CLI version (for example 2.0.2).'
+            exit 1
+          fi
+          sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+          npm install -g "@sap/joule-studio-cli@$JOULE_CLI_VERSION"
+          joule --version
           python -m pip install --disable-pip-version-check "pyyaml==6.0.3"
       - name: Fetch the Boidra-managed runner
         env:
