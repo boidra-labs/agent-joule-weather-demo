@@ -26,7 +26,7 @@ action_groups:
       - type: message
         message:
           type: text
-          content: "<? _markdown ?>"
+          content: "<? _markdown  ?>"
           markdown: true
 
 result:
